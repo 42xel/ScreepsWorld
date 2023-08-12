@@ -31,7 +31,7 @@ nice to include if possible. I mostly only test my code once deployed in release
 //TODO revisit after having properly learned traits
 
 use js_sys::JsString;
-use wasm_bindgen::{JsValue, throw_val, throw_str};
+use wasm_bindgen::{JsValue, throw_val,};
 
 //TODO turn into a macro
 fn target_is_js () -> bool {cfg!(all(target_arch = "wasm32", not(target_os = "emscripten")))}
@@ -119,19 +119,20 @@ pub trait UnwrapJsErrExt<E>: private::UnwrapJsErrExt<E> + Sized {
     }
 }
 
-fn location () -> String {
-    if cfg!(all(debug_assertions, feature = "std")) {
-        let loc = core::panic::Location::caller();
-        std::format!(
-            "{}:{}:{}",
-            loc.file(),
-            loc.line(),
-            loc.column()
-        )
-    } else {
-        "".into()
-    }
-}
+//TODO : test this module and add location if relevant
+// fn location () -> String {
+//     if cfg!(all(debug_assertions, feature = "std")) {
+//         let loc = core::panic::Location::caller();
+//         std::format!(
+//             "{}:{}:{}",
+//             loc.file(),
+//             loc.line(),
+//             loc.column()
+//         )
+//     } else {
+//         "".into()
+//     }
+// }
 
 impl<T> private::UnwrapJsExt<T> for Option<T> {
     fn unwrap (self) -> T {self.unwrap()}

@@ -3,7 +3,9 @@
 use std::cell::RefCell;
 //use std::collections::{hash_map::Entry, HashMap};
 
-use log::*;
+mod prelude;
+use prelude::*;
+
 use screeps::{
     constants::{Part,},
 //    enums::StructureObject,

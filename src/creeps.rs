@@ -1,11 +1,11 @@
-use log::*;
+use crate::prelude::*;
 
 use screeps::{
-    constants::{Part, ResourceType}, 
-    objects::Creep, SharedCreepProperties, find, HasPosition, Room, StructureObject
+    objects::Creep, SharedCreepProperties,
 };
 
-use crate::my_wasm::*;
+use crate::{my_wasm::*, };
+use self::drone::run_drone;
 
 pub mod count {
     use super::super::*;
@@ -35,98 +35,109 @@ pub(crate) fn run_creep(creep: &Creep) {
     }
 }
 
-fn run_drone(room: &Room, creep: &Creep) {
-    let pos = creep.pos();
+mod drone {
+    use crate::prelude::*;
+    use screeps::{
+        constants::{Part, ResourceType},
+        objects::Creep,
+        StructureObject, Room, HasPosition, SharedCreepProperties, find
+    };
 
-    let mut used_capacity = creep.store().get_used_capacity(Some(ResourceType::Energy)) as i32;
-    let mut free_capacity = creep.store().get_free_capacity(Some(ResourceType::Energy));
-    let vspawns;
-    let vstructures;
+    pub(crate) fn run_drone(room: &Room, creep: &Creep) {
+        let pos = creep.pos();
 
-    let (spawn, controller) = if used_capacity > 0 {
-        vspawns = room.find(find::MY_SPAWNS, None);
-        vstructures = room.find(find::MY_STRUCTURES, None);
-        (if let Some(spawn) = vspawns.get(0)
-        {
-            if creep.transfer(spawn, ResourceType::Energy, Some(used_capacity as u32)).is_ok() {
-                //anticipate cargo emptying so as to move the same turn
-                free_capacity += used_capacity;
-                used_capacity = 0;
-                None
+        let mut used_capacity = creep.store().get_used_capacity(Some(ResourceType::Energy)) as i32;
+        let mut free_capacity = creep.store().get_free_capacity(Some(ResourceType::Energy));
+        let vspawns;
+        let vstructures;
+
+        let (spawn, controller) = if used_capacity > 0 {
+            vspawns = room.find(find::MY_SPAWNS, None);
+            vstructures = room.find(find::MY_STRUCTURES, None);
+            (if let Some(spawn) = vspawns.get(0)
+            {
+                if creep.transfer(spawn, ResourceType::Energy, Some(used_capacity as u32)).is_ok() {
+                    //anticipate cargo emptying so as to move the same turn
+                    free_capacity += used_capacity;
+                    used_capacity = 0;
+                    None
+                } else {
+                    Some(spawn)
+                }
             } else {
-                Some(spawn)
-            }
-        } else {
-            warn!("Couldn't find spawn"); None
-        },
-        if let Some(controller) = vstructures.iter().find_map(|s| if let StructureObject::StructureController(c) = s {Some(c)} else {None})
-        {
-            if creep.upgrade_controller(&controller).is_ok() {
-                let w = creep.get_active_bodyparts(Part::Work) as i32;
-                //anticipate cargo emptying so as to move the same turn
-                free_capacity -= w;
-                used_capacity += w;
-            }
-            Some(controller)
-        } else {
-            warn!("Couldn't find controller"); None
-        })
-    } else {(None, None)};
+                warn!("Couldn't find spawn"); None
+            },
+            if let Some(controller) = vstructures.iter().find_map(|s| if let StructureObject::StructureController(c) = s {Some(c)} else {None})
+            {
+                if creep.upgrade_controller(&controller).is_ok() {
+                    let w = creep.get_active_bodyparts(Part::Work) as i32;
+                    //anticipate cargo emptying so as to move the same turn
+                    free_capacity -= w;
+                    used_capacity += w;
+                }
+                Some(controller)
+            } else {
+                warn!("Couldn't find controller"); None
+            })
+        } else {(None, None)};
     
-    let ruin = if free_capacity > 0 {
-        if let Some(ruin) = pos.find_closest_by_path(find::RUINS, None) {
-            if creep.withdraw(&ruin, ResourceType::Energy, None).is_ok() {
-                //anticipate cargo filling so as to move the same turn
-                used_capacity += free_capacity;
-                free_capacity = 0;
-                None
-            } else {
-                Some(ruin)
+        let ruin = if free_capacity > 0 {
+            if let Some(ruin) = pos.find_closest_by_path(find::RUINS, None) {
+                if creep.withdraw(&ruin, ResourceType::Energy, Some(free_capacity as u32)).is_ok() {
+                    //anticipate cargo filling so as to move the same turn
+                    used_capacity += free_capacity;
+                    free_capacity = 0;
+                    Some(ruin)
+    //                None
+                } else {
+                    //Some(ruin)
+                    None
+                }
+            } else { trace!("couldn't find any ruin."); None}
+        } else {None};
+        let source = if free_capacity > 0 {
+            if let Some(source) = pos.find_closest_by_path(find::SOURCES_ACTIVE, None) {
+                if creep.harvest(&source).is_ok() {
+                    let w = creep.get_active_bodyparts(Part::Work) as i32 * 2;
+                    //anticipate cargo filling so as to move the same turn
+                    free_capacity -= w;
+                    used_capacity += w;
+                    None
+                } else {
+                    Some(source)
+                }
+            } else { warn!("couldn't find any active source."); None}
+        } else {None};
+
+        let origin = match (ruin, source) {
+            (Some(r), _) => Some(r.pos()),
+            (_, Some(s)) => Some(s.pos()),
+            _ => None,
+        };
+
+        let target = match (spawn, controller) {
+            (Some(s), _) if s.store().get_free_capacity(Some(ResourceType::Energy)) >= 100 => Some(s.pos()),
+            (_, Some(c)) => Some(c.pos()),
+            _ => None,
+        };
+
+        if used_capacity <= 0 {
+            if let Some(s) = origin {
+                let _ = creep.move_to(s);
             }
-        } else { trace!("couldn't find any ruin."); None}
-    } else {None};
-    let source = if free_capacity > 0 {
-        if let Some(source) = pos.find_closest_by_path(find::SOURCES_ACTIVE, None) {
-            if creep.harvest(&source).is_ok() {
-                let w = creep.get_active_bodyparts(Part::Work) as i32 * 2;
-                //anticipate cargo filling so as to move the same turn
-                free_capacity -= w;
-                used_capacity += w;
-                None
-            } else {
-                Some(source)
+        }
+        else if free_capacity <= 0 {
+            if let Some(t) = target {
+                let _ = creep.move_to(t);
             }
-        } else { warn!("couldn't find any active source."); None}
-    } else {None};
-
-    let origin = match (ruin, source) {
-        (Some(r), _) => Some(r.pos()),
-        (_, Some(s)) => Some(s.pos()),
-        _ => None,
-    };
-
-    let target = match (spawn, controller) {
-        (Some(s), _) if s.store().get_free_capacity(Some(ResourceType::Energy)) >= 100 => Some(s.pos()),
-        (_, Some(c)) => Some(c.pos()),
-        _ => None,
-    };
-
-    if used_capacity <= 0 {
-        if let Some(s) = origin {
-            let _ = creep.move_to(s);
         }
-    }
-    else if free_capacity <= 0 {
-        if let Some(t) = target {
-            let _ = creep.move_to(t);
-        }
-    }
-    //if neither full nor empty, make a decision based on range.
-    else if let (Some(t), Some(o)) = (target, origin) {
-        if (used_capacity * (pos.get_range_to(o.pos()) - 1) as i32) <= free_capacity * (pos.get_range_to(t) - 1) as i32 {
-            let _ = creep.move_to(o);
-        } else {
-            let _ = creep.move_to(t);
+        //if neither full nor empty, make a decision based on range.
+        else if let (Some(t), Some(o)) = (target, origin) {
+            if (used_capacity * (pos.get_range_to(o.pos()) - 1) as i32) <= free_capacity * (pos.get_range_to(t) - 1) as i32 {
+                let _ = creep.move_to(o);
+            } else {
+                let _ = creep.move_to(t);
+            }
         }
     }
 }
