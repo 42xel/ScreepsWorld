@@ -18,7 +18,6 @@ use wasm_bindgen::prelude::*;
 
 mod logging;
 
-
 pub mod creeps;
 
 // add wasm_bindgen to any function you would like to expose for call from js
@@ -34,19 +33,7 @@ pub mod my_wasm;
 // keeping state in memory on game objects - but will be lost on global resets!
 thread_local! {
     static INIT: RefCell<bool> = RefCell::new(false);
-    //static CREEP_TARGETS: RefCell<HashMap<String, CreepTarget>> = RefCell::new(HashMap::new());
 }
-
-
-//  // this enum will represent a creep's lock on a specific target object, storing a js reference
-//  // to the object id so that we can grab a fresh reference to the object each successive tick,
-//  // since screeps game objects become 'stale' and shouldn't be used beyond the tick they were fetched
-//  #[derive(Clone, PartialEq, PartialOrd)]
-//  enum CreepTarget {
-//      Transfer(ObjectId<StructureSpawn>),
-//      Harvest(ObjectId<Source>),
-//      Upgrade(ObjectId<StructureController>),
-//  }
 
 pub fn init (b: &mut bool) {
     debug!("starting init");
@@ -74,10 +61,9 @@ pub fn init (b: &mut bool) {
 // to use a reserved name as a function name, use `js_name`:
 #[wasm_bindgen(js_name = loop)]
 pub fn game_loop() {
-    info!("loop starting! time: {}", game::time());
-    INIT.with_borrow_mut(|b| if !*b {init(b)});
-
-    info!("loop starting! CPU: {}", game::cpu::get_used());
+    INIT.with_borrow_mut(|b| if !*b
+        || game::time() % 289 == 0 //hot fixe : we aren't counting the dead !
+        {init(b)});
 
     //CREEP_TARGETS.with_borrow_mut(|creep_targets| {
         debug!("running creeps");

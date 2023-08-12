@@ -12,6 +12,7 @@ function console_error(...args) {
 module.exports.loop = function () {
     try {
         if (wasm_module) {
+            console.log(`Loop starting.\tTime: ${Game.time}\tCPU: ${JSON.stringify(Game.cpu)}`);
             wasm_module.loop();
         } else {
             // attempt to load the wasm only if there's enough bucket to do a bunch of work this tick
