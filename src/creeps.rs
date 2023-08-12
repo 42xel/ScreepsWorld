@@ -72,6 +72,19 @@ fn run_drone(room: &Room, creep: &Creep) {
             warn!("Couldn't find controller"); None
         })
     } else {(None, None)};
+    
+    let ruin = if free_capacity > 0 {
+        if let Some(ruin) = pos.find_closest_by_path(find::RUINS, None) {
+            if creep.withdraw(&ruin, ResourceType::Energy, None).is_ok() {
+                //anticipate cargo filling so as to move the same turn
+                used_capacity += free_capacity;
+                free_capacity = 0;
+                None
+            } else {
+                Some(ruin)
+            }
+        } else { trace!("couldn't find any ruin."); None}
+    } else {None};
     let source = if free_capacity > 0 {
         if let Some(source) = pos.find_closest_by_path(find::SOURCES_ACTIVE, None) {
             if creep.harvest(&source).is_ok() {
@@ -86,6 +99,12 @@ fn run_drone(room: &Room, creep: &Creep) {
         } else { warn!("couldn't find any active source."); None}
     } else {None};
 
+    let origin = match (ruin, source) {
+        (Some(r), _) => Some(r.pos()),
+        (_, Some(s)) => Some(s.pos()),
+        _ => None,
+    };
+
     let target = match (spawn, controller) {
         (Some(s), _) if s.store().get_free_capacity(Some(ResourceType::Energy)) >= 100 => Some(s.pos()),
         (_, Some(c)) => Some(c.pos()),
@@ -93,7 +112,7 @@ fn run_drone(room: &Room, creep: &Creep) {
     };
 
     if used_capacity <= 0 {
-        if let Some(s) = source {
+        if let Some(s) = origin {
             let _ = creep.move_to(s);
         }
     }
@@ -103,9 +122,9 @@ fn run_drone(room: &Room, creep: &Creep) {
         }
     }
     //if neither full nor empty, make a decision based on range.
-    else if let (Some(t), Some(source)) = (target, source) {
-        if (used_capacity * (pos.get_range_to(source.pos()) - 1) as i32) <= free_capacity * (pos.get_range_to(t) - 1) as i32 {
-            let _ = creep.move_to(source);
+    else if let (Some(t), Some(o)) = (target, origin) {
+        if (used_capacity * (pos.get_range_to(o.pos()) - 1) as i32) <= free_capacity * (pos.get_range_to(t) - 1) as i32 {
+            let _ = creep.move_to(o);
         } else {
             let _ = creep.move_to(t);
         }
