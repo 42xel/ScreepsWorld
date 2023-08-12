@@ -1,12 +1,9 @@
-use std::any::Any;
-
 use log::*;
 
 use screeps::{
     constants::{Part, ResourceType}, 
-    objects::Creep, SharedCreepProperties, find, HasPosition, Room, StructureController, game::{get_object_by_id_typed, get_object_by_id_erased}, MaybeHasId, StructureType, StructureObject
+    objects::Creep, SharedCreepProperties, find, HasPosition, Room, StructureObject
 };
-use wasm_bindgen::JsCast;
 
 use crate::my_wasm::*;
 
