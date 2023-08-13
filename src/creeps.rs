@@ -45,7 +45,7 @@ pub enum Progress {
     /// The task is done.
     Done,
 }
-
+#[allow(dead_code)]
 #[derive(
     Debug, PartialEq, Eq, Clone, Hash,
 )]
@@ -72,7 +72,6 @@ impl From<ErrorCode> for JobError {
 
 pub(crate) fn run_creep(creep: &Creep) {
     if creep.spawning() {return;}
-    let Some(room) = &creep.room() else { warn!("couldn't resolve creep room"); return;};
 
     let name = creep.name();
     debug!("running creep {}", name);
