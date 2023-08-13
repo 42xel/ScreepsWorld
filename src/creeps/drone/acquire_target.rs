@@ -25,7 +25,7 @@ pub(crate) fn acquire_target(creep: &Creep, target_entry: hash_map::VacantEntry<
 
     let vstructures;
     let vstructures_near;
-    let vconstructions_near;
+    //let vconstructions_near;
     let vconstructions;
     // where to spend energy into
     let destination = if used_capacity == 0 { None }
@@ -41,9 +41,9 @@ pub(crate) fn acquire_target(creep: &Creep, target_entry: hash_map::VacantEntry<
                 Some(TargetByObj::Extension(x.clone())),
             _ => None,
             }) { Some(thing) => Some(thing),
-        None => { vconstructions_near = pos.find_in_range(find::MY_CONSTRUCTION_SITES, 1);
-            match vconstructions_near.get(0) {
-                Some(v) => Some(TargetByObj::ConstructionSite(v.clone())),
+        //None => { vconstructions_near = pos.find_in_range(find::MY_CONSTRUCTION_SITES, 1);
+        //    match vconstructions_near.get(0) {
+        //        Some(v) => Some(TargetByObj::ConstructionSite(v.clone())),
         None => {vstructures = room.find(find::MY_STRUCTURES, None);
             match vstructures.iter().filter_map(|o| match o {
                 StructureObject::StructureSpawn(s) if s.store().get_free_capacity(Some(ResourceType::Energy)) > 50 => Some(s),
@@ -67,7 +67,7 @@ pub(crate) fn acquire_target(creep: &Creep, target_entry: hash_map::VacantEntry<
             .min_by_key(|c| pos.get_range_to(c.pos()))
             .map(|c| TargetByObj::Controller(c.clone())),
             }
-        },}}}}}}
+        },}}}}//}}
     
     };
 

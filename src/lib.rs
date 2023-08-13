@@ -35,25 +35,29 @@ thread_local! {
     static INIT: RefCell<bool> = RefCell::new(false);
 }
 
+fn census() {
+   creeps::count::DRONE.with_borrow_mut(|cd|
+    creeps::count::UNKNOWN.with_borrow_mut(|cu|
+        {
+             *cd = 0;
+             for creep in game::creeps().values() {
+                if let Some(c) = creep.name().chars().next(){
+                    match c {
+                        'd' => *cd += 1,
+                        _   => *cu += 1,
+                    }
+                }
+                else { error!("empty creep name !") }
+            }
+        }
+    ));
+}
+
 pub fn init (b: &mut bool) {
     debug!("starting init");
     //TODO iter room
 
-   creeps::count::DRONE.with_borrow_mut(|cd|
-   creeps::count::UNKNOWN.with_borrow_mut(|cu|
-       {
-            *cd = 0;
-            for creep in game::creeps().values() {
-               if let Some(c) = creep.name().chars().next(){
-                   match c {
-                       'd' => *cd += 1,
-                       _   => *cu += 1,
-                   }
-               }
-               else { error!("empty creep name !") }
-           }
-       }
-   ));
+    //census();
     info!("initialization");
 
     *b = true;
@@ -63,7 +67,6 @@ pub fn init (b: &mut bool) {
 #[wasm_bindgen(js_name = loop)]
 pub fn game_loop() {
     INIT.with_borrow_mut(|b| if !*b
-        || game::time() % 289 == 0 //hot fixe : we aren't counting the dead !
         {init(b)});
 
     //CREEP_TARGETS.with_borrow_mut(|creep_targets| {
@@ -78,10 +81,14 @@ pub fn game_loop() {
         if let Some(_) = spawn.spawning() {continue;}
         debug!("running spawn {}", String::from(spawn.name()));
 
+        census();
+
         if creeps::count::DRONE.with_borrow_mut(|cd| {
             if creeps::count::MAX_DRONE.with(|m| *m <= *cd) {return false;};
+
             
             let body = [Part::Work, Part::Carry, Part::Move];
+//        [Part::Carry, Part::Work, Part::Carry, Part::Move, Part::Work, Part::Move,]
             if spawn.room().unwrap().energy_available() < body.iter().map(|p| p.cost()).sum() { return false; }
 
             let name = format!("d1-{}-{}", spawn.name(), game::time());
@@ -93,8 +100,7 @@ pub fn game_loop() {
             } else { *cd += 1; true }
         }) {continue;}
 
-
-//        [Part::Carry, Part::Work, Part::Carry, Part::Move, Part::Move,]
+//        [Part::Carry, Part::Work, Part::Carry, Part::Move, Part::Work, Part::Move,]
     }
     info!("done! cpu: {}", game::cpu::get_used())
 }
