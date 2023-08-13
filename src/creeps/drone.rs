@@ -1,16 +1,15 @@
-use std::{cell::RefCell, collections::{HashMap, hash_map}, marker::PhantomData};
+use std::{cell::RefCell, collections::{HashMap, hash_map}};
 
 use crate::{prelude::*, my_wasm::UnwrapJsExt};
 use screeps::{
     constants::{Part, ResourceType},
-    objects::Creep,
-    Room, HasPosition, SharedCreepProperties, find, ObjectId, StructureSpawn, StructureController, Source, control, ErrorCode, Ruin, MaybeHasPosition, Position,
-    traits::{HasId, HasTypedId, MaybeHasId, HasNativeId, MaybeHasTypedId, MaybeHasNativeId,}
+    objects::Creep, HasPosition, SharedCreepProperties, ObjectId, StructureSpawn, StructureController, Source, ErrorCode, Ruin, Position,
+    traits::{HasTypedId,}, StructureExtension, ConstructionSite, MaybeHasTypedId
 };
-use wasm_bindgen::{throw_val, throw_str};
-use web_sys::console::warn;
+use wasm_bindgen::{throw_str};
 
-use super::{JobError, Progress};
+
+use super::{Progress};
 
 /// this enum will represent a drone's lock on a specific target object, storing a js reference
 /// to the object id so that we can grab a fresh reference to the object each successive tick,
@@ -20,6 +19,8 @@ pub(crate) enum TargetByID {
     Source(ObjectId<Source>),
     Ruin(ObjectId<Ruin>),
     Spawn(ObjectId<StructureSpawn>),
+    Extension(ObjectId<StructureExtension>),
+    ConstructionSite(ObjectId<ConstructionSite>),
     Controller(ObjectId<StructureController>),
 }
 /// the game object corresponding to [`TargetByID`], valid only for one tick.
@@ -28,6 +29,8 @@ pub(self) enum TargetByObj {
     Source(Source),
     Ruin(Ruin),
     Spawn(StructureSpawn),
+    Extension(StructureExtension),
+    ConstructionSite(ConstructionSite),
     Controller(StructureController),
 }
 impl From< TargetByObj > for TargetByID {
@@ -36,6 +39,8 @@ impl From< TargetByObj > for TargetByID {
             TargetByObj::Source(o) => Self::Source(o.id()),
             TargetByObj::Ruin(o) => Self::Ruin(o.id()),
             TargetByObj::Spawn(o) => Self::Spawn(o.id()),
+            TargetByObj::Extension(o) => Self::Extension(o.id()),
+            TargetByObj::ConstructionSite(o) => Self::ConstructionSite(o.try_id().unwrap_js()),
             TargetByObj::Controller(o) => Self::Controller(o.id()),
         }
     }
@@ -47,6 +52,8 @@ impl<'a> HasPosition for TargetByObj {
             Self::Source(t) => t.pos(),
             Self::Ruin(t) => t.pos(),
             Self::Spawn(t) => t.pos(),
+            Self::Extension(t) => t.pos(),
+            Self::ConstructionSite(t) => t.pos(),
             Self::Controller(t) => t.pos(),
         }
     }
@@ -56,6 +63,12 @@ thread_local! {
     static TARGETS: RefCell<HashMap<String, TargetByID>> = Default::default();
 }
 
+fn error_no_body_part(creep: &Creep) -> Result<Progress, ErrorCode> {
+    warn!("crippled creep {}, committing Sepuku", creep.name());
+    let _ = creep.say("🤕☠️", true).and(creep.suicide());
+    Err(ErrorCode::NoBodypart)
+}
+
 fn move_drone_to<T: HasPosition>(creep: &Creep, target: T) -> Result<Progress, ErrorCode> {
     if let Err(err_m) = creep.move_to(target) { match err_m {
         ErrorCode::NoPath | ErrorCode::NotFound /*The creep has no memorized path to reuse. */ => {
@@ -63,7 +76,7 @@ fn move_drone_to<T: HasPosition>(creep: &Creep, target: T) -> Result<Progress, E
             let _ = creep.say("🚫", true);
             Err(err_m)
         },
-        ErrorCode::Tired => { let _ = creep.say("😴", true); Ok(Progress::Todo) },
+        ErrorCode::Tired => { let _ = creep.say("🐌", true); Ok(Progress::Todo) },
         ErrorCode::Busy => Ok(Progress::Todo),
         #[allow(unreachable_patterns)]
         _ | ErrorCode::NotOwner | ErrorCode::InvalidTarget => throw_str(&format!("{:?}", err_m)),
@@ -71,6 +84,7 @@ fn move_drone_to<T: HasPosition>(creep: &Creep, target: T) -> Result<Progress, E
         Ok(Progress::Doing)
     }
 }
+
 fn harvest_source(creep: &Creep, source: Source) -> Result<Progress, ErrorCode> {
     if let Err(e) = creep.harvest(&source) { match e {
         ErrorCode::NotInRange => match move_drone_to(creep, source) {
@@ -79,11 +93,7 @@ fn harvest_source(creep: &Creep, source: Source) -> Result<Progress, ErrorCode> 
             r => r
         },
         ErrorCode::Busy /* Still being spawned */ => Ok(Progress::Frozen),
-        ErrorCode::NoBodypart => {
-            warn!("crippled creep {}, committing Sepuku", creep.name());
-            let _ = creep.say("🤕☠️", true).and(creep.suicide());
-            Err(e)
-        },
+        ErrorCode::NoBodypart => error_no_body_part(creep),
         ErrorCode::NotEnough => Err(e),
         #[allow(unreachable_patterns)]
         _ | ErrorCode::NotOwner | ErrorCode::NotFound | ErrorCode::Tired | ErrorCode::InvalidTarget => {
@@ -93,6 +103,7 @@ fn harvest_source(creep: &Creep, source: Source) -> Result<Progress, ErrorCode> 
         Ok(Progress::Done)
     } else { Ok(Progress::Doing) }
 }
+
 fn withdraw_from_ruin(creep: &Creep, ruin: Ruin) -> Result<Progress, ErrorCode> {
     if let Err(e) = creep.withdraw(&ruin, ResourceType::Energy, None) { match e {
         ErrorCode::NotInRange => match move_drone_to(creep, ruin) {
@@ -102,11 +113,7 @@ fn withdraw_from_ruin(creep: &Creep, ruin: Ruin) -> Result<Progress, ErrorCode> 
         },
         ErrorCode::Full | ErrorCode::NotEnough => Ok(Progress::Done),
         ErrorCode::Busy /* Still being spawned */ => Ok(Progress::Frozen),
-        ErrorCode::NoBodypart => {
-            warn!("crippled creep {}, committing Sepuku", creep.name());
-            let _ = creep.say("🤕☠️", true).and(creep.suicide());
-            Err(e)
-        },
+        ErrorCode::NoBodypart => error_no_body_part(creep),
         #[allow(unreachable_patterns)]
         _ | ErrorCode::NotOwner | ErrorCode::InvalidArgs | ErrorCode::InvalidTarget => {
             throw_str(&format!("{:?}", e)) },
@@ -115,6 +122,7 @@ fn withdraw_from_ruin(creep: &Creep, ruin: Ruin) -> Result<Progress, ErrorCode> 
         Ok(Progress::Done)
     } else { Ok(Progress::Doing) }
 }
+
 fn transfer_spawn(creep: &Creep, spawn: StructureSpawn) -> Result<Progress, ErrorCode> {
     if let Err(e) = creep.transfer(&spawn, ResourceType::Energy, None) { match e {
         ErrorCode::NotInRange => match move_drone_to(creep, spawn) {
@@ -123,11 +131,7 @@ fn transfer_spawn(creep: &Creep, spawn: StructureSpawn) -> Result<Progress, Erro
             r => r
         },
         ErrorCode::Full => Ok(Progress::Done),
-        ErrorCode::NoBodypart => {
-            warn!("crippled creep {}, committing Sepuku", creep.name());
-            let _ = creep.say("🤕☠️", true).and(creep.suicide());
-            Err(e)
-        },
+        ErrorCode::NoBodypart => error_no_body_part(creep),
         #[allow(unreachable_patterns)]
         _ | ErrorCode::NotOwner | ErrorCode::InvalidTarget | ErrorCode::NotEnough | ErrorCode::Busy | ErrorCode::InvalidArgs => {
             throw_str(&format!("{:?}", e)) },
@@ -136,6 +140,25 @@ fn transfer_spawn(creep: &Creep, spawn: StructureSpawn) -> Result<Progress, Erro
         Ok(Progress::Done)
     }
 }
+
+fn transfer_extension(creep: &Creep, extension: StructureExtension) -> Result<Progress, ErrorCode> {
+    if let Err(e) = creep.transfer(&extension, ResourceType::Energy, None) { match e {
+        ErrorCode::NotInRange => match move_drone_to(creep, extension) {
+            Err(ErrorCode::NotFound) => Ok(Progress::Todo),
+            Err(ErrorCode::NoPath) => { Err(ErrorCode::NoPath)},
+            r => r
+        },
+        ErrorCode::Full => Ok(Progress::Done),
+        ErrorCode::NoBodypart => error_no_body_part(creep),
+        #[allow(unreachable_patterns)]
+        _ | ErrorCode::NotOwner | ErrorCode::InvalidTarget | ErrorCode::NotEnough | ErrorCode::Busy | ErrorCode::InvalidArgs => {
+            throw_str(&format!("{:?}", e)) },
+    }}
+    else {
+        Ok(Progress::Done)
+    }
+}
+
 fn upgrade_controller_controller(creep: &Creep, controller: StructureController) -> Result<Progress, ErrorCode> {
     if let Err(e) = creep.upgrade_controller(&controller) { match e {
         ErrorCode::NotInRange => match move_drone_to(creep, controller) {
@@ -143,11 +166,7 @@ fn upgrade_controller_controller(creep: &Creep, controller: StructureController)
             Err(ErrorCode::NoPath) => { Err(ErrorCode::NoPath)},
             r => r
         },
-        ErrorCode::NoBodypart => {
-            warn!("crippled creep {}, committing Sepuku", creep.name());
-            let _ = creep.say("🤕☠️", true).and(creep.suicide());
-            Err(e)
-        },
+        ErrorCode::NoBodypart => error_no_body_part(creep),
         ErrorCode::NotEnough => Err(e),
         ErrorCode::Busy /* Still being spawned */ => Ok(Progress::Frozen),
         #[allow(unreachable_patterns)]
@@ -155,6 +174,29 @@ fn upgrade_controller_controller(creep: &Creep, controller: StructureController)
             throw_str(&format!("{:?}", e)) },
     }}
     else if creep.get_active_bodyparts(Part::Work) as u32 > creep.store().get_used_capacity(Some(ResourceType::Energy)) {
+        Ok(Progress::Done)
+    } else { Ok(Progress::Doing) }
+}
+
+fn build(creep: &Creep, construction_site: ConstructionSite) -> Result<Progress, ErrorCode> {
+    if let Err(e) = creep.build(&construction_site) { match e {
+        ErrorCode::NotInRange => match move_drone_to(creep, construction_site) {
+            Err(ErrorCode::NotFound) => Ok(Progress::Todo),
+            Err(ErrorCode::NoPath) => { Err(ErrorCode::NoPath)},
+            r => r
+        },
+        ErrorCode::NotEnough => Ok(Progress::Done),
+        ErrorCode::NoBodypart => error_no_body_part(creep),
+        ErrorCode::Busy /* Still being spawned */ => Ok(Progress::Frozen),
+        ErrorCode::InvalidTarget => {
+            warn!("The target is not a valid construction site object or the structure cannot be built here (probably because of a creep at the same square).");
+            Err(ErrorCode::InvalidTarget)
+        },
+        #[allow(unreachable_patterns)]
+        _ | ErrorCode::NotOwner => {
+            throw_str(&format!("{:?}", e)) },
+    }}
+    else if creep.get_active_bodyparts(Part::Work) as u32 * 5 > creep.store().get_used_capacity(Some(ResourceType::Energy)) {
         Ok(Progress::Done)
     } else { Ok(Progress::Doing) }
 }
@@ -172,11 +214,25 @@ pub(super) fn run_drone(creep: &Creep) {
                 TargetByID::Spawn(spawn) => transfer_spawn(creep, spawn.resolve().unwrap_js()),
                 TargetByID::Controller(controller) => upgrade_controller_controller(creep, controller.resolve().unwrap_js()),
                 TargetByID::Ruin(ruin) => withdraw_from_ruin(creep, ruin.resolve().unwrap_js()),
+                TargetByID::Extension(extension) => transfer_extension(creep, extension.resolve().unwrap_js()),
+                TargetByID::ConstructionSite(construction_site) => build(creep, construction_site.resolve().unwrap_js()),
             }
         } else { Ok(Progress::Frozen)}; // no need to clear
         match r {
             Ok(Progress::Done) | Err(_) => {targets.remove(&name);},
             _ => (),
+        }
+        match r {
+            Ok(p) => match p {
+                Progress::Frozen => creep.say("❄️", true).unwrap_or_default(),
+                Progress::Todo => creep.say("😴", true).unwrap_or_default(),
+                Progress::Done => creep.say("✅", true).unwrap_or_default(),
+                _ => (),
+            },
+            Err(e) => match e {
+                ErrorCode::NoPath | ErrorCode::Busy | ErrorCode::NotFound | ErrorCode::NotInRange | ErrorCode::Tired | ErrorCode::NoBodypart => (),
+                _ => creep.say("❎", true).unwrap_or_default(),
+            },
         }
         if let hash_map::Entry::Vacant(target) = targets.entry(name) {
             acquire_target::acquire_target(creep, target);
