@@ -42,7 +42,8 @@ pub fn init (b: &mut bool) {
    creeps::count::DRONE.with_borrow_mut(|cd|
    creeps::count::UNKNOWN.with_borrow_mut(|cu|
        {
-           for creep in game::creeps().values() {
+            *cd = 0;
+            for creep in game::creeps().values() {
                if let Some(c) = creep.name().chars().next(){
                    match c {
                        'd' => *cd += 1,
