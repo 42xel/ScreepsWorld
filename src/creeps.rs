@@ -16,7 +16,7 @@ pub mod count {
         pub static DRONE: RefCell<u32> = Default::default();
         pub static UNKNOWN: RefCell<u32> = Default::default();
 
-        pub static MAX_DRONE: u32 = 20;
+        pub static MAX_DRONE: u32 = 12;
     }
 }
 

@@ -15,7 +15,7 @@ use super::{Progress};
 /// to the object id so that we can grab a fresh reference to the object each successive tick,
 /// since screeps game objects become 'stale' and shouldn't be used beyond the tick they were fetched
 #[derive(Debug, PartialEq, PartialOrd)]
-pub(crate) enum TargetByID {
+pub(crate) enum Target {
     Source(ObjectId<Source>),
     Ruin(ObjectId<Ruin>),
     Spawn(ObjectId<StructureSpawn>),
@@ -23,44 +23,9 @@ pub(crate) enum TargetByID {
     ConstructionSite(ObjectId<ConstructionSite>),
     Controller(ObjectId<StructureController>),
 }
-/// the game object corresponding to [`TargetByID`], valid only for one tick.
-#[derive(Debug)]
-pub(self) enum TargetByObj {
-    Source(Source),
-    Ruin(Ruin),
-    Spawn(StructureSpawn),
-    Extension(StructureExtension),
-    ConstructionSite(ConstructionSite),
-    Controller(StructureController),
-}
-impl From< TargetByObj > for TargetByID {
-    fn from(value: TargetByObj) -> Self {
-        match value {
-            TargetByObj::Source(o) => Self::Source(o.id()),
-            TargetByObj::Ruin(o) => Self::Ruin(o.id()),
-            TargetByObj::Spawn(o) => Self::Spawn(o.id()),
-            TargetByObj::Extension(o) => Self::Extension(o.id()),
-            TargetByObj::ConstructionSite(o) => Self::ConstructionSite(o.try_id().unwrap_js()),
-            TargetByObj::Controller(o) => Self::Controller(o.id()),
-        }
-    }
-}
-impl<'a> HasPosition for TargetByObj {
-    #[doc = " Position of the object."]
-    fn pos(&self) -> Position {
-        match self {
-            Self::Source(t) => t.pos(),
-            Self::Ruin(t) => t.pos(),
-            Self::Spawn(t) => t.pos(),
-            Self::Extension(t) => t.pos(),
-            Self::ConstructionSite(t) => t.pos(),
-            Self::Controller(t) => t.pos(),
-        }
-    }
-}
 
 thread_local! {
-    static TARGETS: RefCell<HashMap<String, TargetByID>> = Default::default();
+    static TARGETS: RefCell<HashMap<String, Target>> = Default::default();
 }
 
 fn error_no_body_part(creep: &Creep) -> Result<Progress, ErrorCode> {
@@ -130,7 +95,7 @@ fn transfer_spawn(creep: &Creep, spawn: StructureSpawn) -> Result<Progress, Erro
             Err(ErrorCode::NoPath) => { Err(ErrorCode::NoPath)},
             r => r
         },
-        ErrorCode::Full => Ok(Progress::Done),
+        ErrorCode::Full | ErrorCode::NotEnough => Ok(Progress::Done),
         ErrorCode::NoBodypart => error_no_body_part(creep),
         #[allow(unreachable_patterns)]
         _ | ErrorCode::NotOwner | ErrorCode::InvalidTarget | ErrorCode::NotEnough | ErrorCode::Busy | ErrorCode::InvalidArgs => {
@@ -148,7 +113,7 @@ fn transfer_extension(creep: &Creep, extension: StructureExtension) -> Result<Pr
             Err(ErrorCode::NoPath) => { Err(ErrorCode::NoPath)},
             r => r
         },
-        ErrorCode::Full => Ok(Progress::Done),
+        ErrorCode::Full | ErrorCode::NotEnough => Ok(Progress::Done),
         ErrorCode::NoBodypart => error_no_body_part(creep),
         #[allow(unreachable_patterns)]
         _ | ErrorCode::NotOwner | ErrorCode::InvalidTarget | ErrorCode::NotEnough | ErrorCode::Busy | ErrorCode::InvalidArgs => {
@@ -175,7 +140,7 @@ fn upgrade_controller_controller(creep: &Creep, controller: StructureController)
     }}
     else if creep.get_active_bodyparts(Part::Work) as u32 > creep.store().get_used_capacity(Some(ResourceType::Energy)) {
         Ok(Progress::Done)
-    } else { Ok(Progress::Doing) }
+    } else { let _ = move_drone_to(creep, controller); Ok(Progress::Doing) }
 }
 
 fn build(creep: &Creep, construction_site: ConstructionSite) -> Result<Progress, ErrorCode> {
@@ -210,12 +175,12 @@ pub(super) fn run_drone(creep: &Creep) {
     {
         let r = if let Some(target) = targets.get(&name) {
             match target {
-                TargetByID::Source(source) => harvest_source(creep, source.resolve().unwrap_js()),
-                TargetByID::Spawn(spawn) => transfer_spawn(creep, spawn.resolve().unwrap_js()),
-                TargetByID::Controller(controller) => upgrade_controller_controller(creep, controller.resolve().unwrap_js()),
-                TargetByID::Ruin(ruin) => withdraw_from_ruin(creep, ruin.resolve().unwrap_js()),
-                TargetByID::Extension(extension) => transfer_extension(creep, extension.resolve().unwrap_js()),
-                TargetByID::ConstructionSite(construction_site) => build(creep, construction_site.resolve().unwrap_js()),
+                Target::Source(source) => harvest_source(creep, source.resolve().unwrap_js()),
+                Target::Spawn(spawn) => transfer_spawn(creep, spawn.resolve().unwrap_js()),
+                Target::Controller(controller) => upgrade_controller_controller(creep, controller.resolve().unwrap_js()),
+                Target::Ruin(ruin) => withdraw_from_ruin(creep, ruin.resolve().unwrap_js()),
+                Target::Extension(extension) => transfer_extension(creep, extension.resolve().unwrap_js()),
+                Target::ConstructionSite(construction_site) => build(creep, construction_site.resolve().unwrap_js()),
             }
         } else { Ok(Progress::Frozen)}; // no need to clear
         match r {
@@ -225,7 +190,7 @@ pub(super) fn run_drone(creep: &Creep) {
         match r {
             Ok(p) => match p {
                 Progress::Frozen => creep.say("❄️", true).unwrap_or_default(),
-                Progress::Todo => creep.say("😴", true).unwrap_or_default(),
+                Progress::Todo if creep.fatigue() == 0 => creep.say("😴", true).unwrap_or_default(),
                 Progress::Done => creep.say("✅", true).unwrap_or_default(),
                 _ => (),
             },

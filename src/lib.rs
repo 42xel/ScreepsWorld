@@ -16,6 +16,8 @@ use screeps::{
 };
 use wasm_bindgen::prelude::*;
 
+use crate::my_wasm::UnwrapJsExt;
+
 mod logging;
 
 pub mod creeps;
@@ -87,11 +89,24 @@ pub fn game_loop() {
             if creeps::count::MAX_DRONE.with(|m| *m <= *cd) {return false;};
 
             
-            let body = [Part::Work, Part::Carry, Part::Move];
-//        [Part::Carry, Part::Work, Part::Carry, Part::Move, Part::Work, Part::Move,]
-            if spawn.room().unwrap().energy_available() < body.iter().map(|p| p.cost()).sum() { return false; }
+            let body1 = [Part::Work, Part::Carry, Part::Move];
+//            let body2 = [Part::Carry, Part::Work, Part::Move, Part::Carry, Part::Work, Part::Move,];
+            let body2 = [Part::Carry, Part::Work, Part::Move, Part::Carry, Part::Work, Part::Move, Part::Carry, Part::Work, Part::Move,];
+            let name;
 
-            let name = format!("d1-{}-{}", spawn.name(), game::time());
+            let energy_available = spawn.room().unwrap_js().energy_available();
+
+            let body = if spawn.room().unwrap_js().energy_capacity_available() < body2.iter().map(|p| p.cost()).sum()
+            || *cd < 3 &&  energy_available < 400 {
+                name = format!("d1-{}-{}", spawn.name(), game::time());
+                Vec::from(body1)
+            } else {
+                name = format!("d2-{}-{}", spawn.name(), game::time());
+                Vec::from(body2)
+            };
+
+            if  energy_available < body.iter().map(|p| p.cost()).sum() { return false; }
+
             // note that this bot has a fatal flaw; spawning a creep
             // creates Memory.creeps[creep_name] which will build up forever;
             // these memory entries should be prevented (todo doc link on how) or cleaned up
@@ -102,6 +117,6 @@ pub fn game_loop() {
 
 //        [Part::Carry, Part::Work, Part::Carry, Part::Move, Part::Work, Part::Move,]
     }
-    info!("done! cpu: {}", game::cpu::get_used())
+//    info!("done! cpu: {}", game::cpu::get_used())
 }
 
