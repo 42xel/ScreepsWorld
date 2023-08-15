@@ -1,5 +1,9 @@
 # Military
-#Rangers
+Rangers
+
+# Expansion
+- Auto Claimant
+- room by room automation
 
 # CLI
 - hello CLI

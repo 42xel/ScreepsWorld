@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::{HashMap, hash_map}};
 use crate::{prelude::*, my_wasm::UnwrapJsExt};
 use screeps::{
     constants::{Part, ResourceType},
-    objects::Creep, HasPosition, SharedCreepProperties, ObjectId, StructureSpawn, StructureController, Source, ErrorCode, Ruin, StructureExtension, ConstructionSite
+    objects::Creep, HasPosition, SharedCreepProperties, ObjectId, StructureSpawn, StructureController, Source, ErrorCode, Ruin, StructureExtension, ConstructionSite, MoveToOptions
 };
 use wasm_bindgen::{throw_str};
 
@@ -35,7 +35,8 @@ fn error_no_body_part(creep: &Creep) -> Result<Progress, ErrorCode> {
 }
 
 fn move_drone_to<T: HasPosition>(creep: &Creep, target: T) -> Result<Progress, ErrorCode> {
-    if let Err(err_m) = creep.move_to(target) { match err_m {
+    if let Err(err_m) = creep.move_to_with_options(target, Some(MoveToOptions::new().ignore_creeps(true)))
+    { match err_m {
         ErrorCode::NoPath | ErrorCode::NotFound /*The creep has no memorized path to reuse. */ => {
             warn!("No path{:?}", err_m);
             let _ = creep.say("🚫", true);

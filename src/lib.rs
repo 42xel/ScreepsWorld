@@ -96,11 +96,11 @@ pub fn game_loop() {
             let energy_available = spawn.room().unwrap_js().energy_available();
 
             let body = if spawn.room().unwrap_js().energy_capacity_available() < body2.iter().map(|p| p.cost()).sum()
-            || *cd < 3 &&  energy_available < 400 {
+            || (*cd < 3 &&  energy_available < 400) {
                 name = format!("d1-{}-{}", spawn.name(), game::time());
                 Vec::from(body1)
             } else {
-                name = format!("d2-{}-{}", spawn.name(), game::time());
+                name = format!("d3-{}-{}", spawn.name(), game::time());
                 Vec::from(body2)
             };
 
