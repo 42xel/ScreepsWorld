@@ -19,9 +19,6 @@ use wasm_bindgen::prelude::*;
 use crate::my_wasm::UnwrapJsExt;
 
 mod logging;
-
-pub mod creeps;
-
 // add wasm_bindgen to any function you would like to expose for call from js
 #[wasm_bindgen]
 pub fn setup() {
@@ -29,7 +26,9 @@ pub fn setup() {
 }
 
 pub mod my_wasm;
-//use my_wasm::*;
+
+pub mod creeps;
+pub mod utils;
 
 // this is one way to persist data between ticks within Rust's memory, as opposed to
 // keeping state in memory on game objects - but will be lost on global resets!

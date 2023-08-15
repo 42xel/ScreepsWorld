@@ -3,8 +3,7 @@ use std::{cell::RefCell, collections::{HashMap, hash_map}};
 use crate::{prelude::*, my_wasm::UnwrapJsExt};
 use screeps::{
     constants::{Part, ResourceType},
-    objects::Creep, HasPosition, SharedCreepProperties, ObjectId, StructureSpawn, StructureController, Source, ErrorCode, Ruin, Position,
-    traits::{HasTypedId,}, StructureExtension, ConstructionSite, MaybeHasTypedId
+    objects::Creep, HasPosition, SharedCreepProperties, ObjectId, StructureSpawn, StructureController, Source, ErrorCode, Ruin, StructureExtension, ConstructionSite
 };
 use wasm_bindgen::{throw_str};
 
@@ -18,8 +17,9 @@ use super::{Progress};
 pub(crate) enum Target {
     Source(ObjectId<Source>),
     Ruin(ObjectId<Ruin>),
-    Spawn(ObjectId<StructureSpawn>),
     Extension(ObjectId<StructureExtension>),
+    Spawn(ObjectId<StructureSpawn>),
+    _ConstructionSiteMax,
     ConstructionSite(ObjectId<ConstructionSite>),
     Controller(ObjectId<StructureController>),
 }
@@ -181,6 +181,7 @@ pub(super) fn run_drone(creep: &Creep) {
                 Target::Ruin(ruin) => withdraw_from_ruin(creep, ruin.resolve().unwrap_js()),
                 Target::Extension(extension) => transfer_extension(creep, extension.resolve().unwrap_js()),
                 Target::ConstructionSite(construction_site) => build(creep, construction_site.resolve().unwrap_js()),
+                Target::_ConstructionSiteMax => unreachable!(),
             }
         } else { Ok(Progress::Frozen)}; // no need to clear
         match r {
