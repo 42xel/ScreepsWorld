@@ -135,13 +135,17 @@ pub trait UnwrapJsErrExt<E>: private::UnwrapJsErrExt<E> + Sized {
 // }
 
 impl<T> private::UnwrapJsExt<T> for Option<T> {
+    #[inline(always)]
     fn unwrap (self) -> T {self.unwrap()}
+    #[inline(always)]
     fn expect (self, msg: &str) -> T {self.expect(msg)}
 
     // 'called `Result::unwrap()` on an `Err` value'
+    #[inline(always)]
     fn unwrap_js_raw (self) -> T {
         self.expect_js_raw("called `Result::unwrap_js()` on a `None` value".into())
     }
+    #[inline(always)]
     fn expect_js_raw (self, msg : JsValue) -> T {
         match self {
             Some(val) => val,
@@ -156,12 +160,16 @@ where
     E: Into<JsValue>,
     E: core::fmt::Debug,
 {
+    #[inline(always)]
     fn unwrap (self) -> T {self.unwrap()}
+    #[inline(always)]
     fn expect (self, msg: &str) -> T {self.expect(msg)}
 
+    #[inline(always)]
     fn unwrap_js_raw (self) -> T {
         self.expect_js_raw("called `Result::unwrap_js()` on a `Err` value".into())
     }
+    #[inline(always)]
     fn expect_js_raw (self, msg : JsValue) -> T {
         match self {
             Ok(val) => val,
@@ -180,12 +188,16 @@ where
     T: Into<JsValue>,
     T: core::fmt::Debug,
 {
+    #[inline(always)]
     fn unwrap_err (self) -> E {self.unwrap_err()}
+    #[inline(always)]
     fn expect_err (self, msg: &str) -> E {self.expect_err(msg)}
 
+    #[inline(always)]
     fn unwrap_js_raw_err (self) -> E {
         self.expect_js_raw_err("called `Result::unwrap_js()` on an `Ok` value".into())
     }
+    #[inline(always)]
     fn expect_js_raw_err (self, msg : JsValue) -> E {
         match self {
             Ok(val) => throw_val(JsString::from(msg).concat(&": ".into()).concat(&val.into()).into()),
