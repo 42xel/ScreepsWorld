@@ -8,22 +8,22 @@ use screeps::{
     find, HasPosition, Room, Position, Ruin, Source, StructureSpawn, StructureExtension, ConstructionSite, StructureController, HasTypedId, MaybeHasTypedId
 };
         
-use crate::{my_wasm::UnwrapJsExt, utils::{UnOrd}};
+use crate::{my_wasm::UnwrapJsExt, utils::unord::UnOrd, creeps::CreepName};
 
-use super::{Target};
+use super::{TargetEnum};
 
 
 /**
-The game object corresponding to [`TargetByID`], valid only for one tick.
+The game object corresponding to [`Target`], valid only for one tick.
 
 Technical choice
 ---
-Because most the find functions provide directly objects,
+Because most find functions provide directly objects,
 and we need to work directly with objects for example to use their position,
 I introduce this intermediary structure.
 
-This structure owns its object for convenience, at the cost of a handful clones here and there, notably data which can't be moved out of the Vec produced by [`find`]
-The function [`acquire_target`] needs a hold on the udnerlying data either way,
+This structure owns its object for convenience.
+The function [`acquire_target`] needs a hold on the underlying data either way,
 providing that hold through a single [`TargetByObj`] variable greatly reduce the number of variable (and reduce a bit memory usage),
 compared to potentially owning one Vec of each variant type.
 
@@ -50,7 +50,7 @@ impl From<StructureSpawn> for TargetByObj { fn from(o: StructureSpawn) -> Self {
 impl From<ConstructionSite> for TargetByObj { fn from(o: ConstructionSite) -> Self { Self::ConstructionSite(o.into()) } }
 impl From<StructureController> for TargetByObj { fn from(o: StructureController) -> Self { Self::Controller(o.into()) } }
 
-impl From<TargetByObj> for Target {
+impl From<TargetByObj> for TargetEnum {
     fn from(value: TargetByObj) -> Self {
         match value {
             TargetByObj::Source(o) => Self::Source(o.id()),
@@ -96,7 +96,7 @@ fn try_dest_structure_near(pos: &Position) -> Option<TargetByObj> {
             && s.store().get_free_capacity(Some(ResourceType::Energy)) >= 50 =>
             Some(TargetByObj::from(s)),
         StructureObject::StructureExtension(s) if pos.get_range_to(s.pos()) <= 1
-            && s.store().get_free_capacity(Some(ResourceType::Energy)) >= 50 =>
+            && s.store().get_free_capacity(Some(ResourceType::Energy)) >= 1 =>
             Some(TargetByObj::from(s)),
         _ => None,
     }).min()
@@ -109,7 +109,7 @@ fn try_dest_structure(room: &Room, pos: &Position) -> Option<TargetByObj> {
     room.find(find::MY_STRUCTURES, None)
     .into_iter().filter_map(|o| match o {
         StructureObject::StructureExtension(s)
-            if s.store().get_free_capacity(Some(ResourceType::Energy)) >= 50 => { let p = s.pos(); Some((TargetByObj::from(s), pos.get_range_to(p))) },
+            if s.store().get_free_capacity(Some(ResourceType::Energy)) >= 1 => { let p = s.pos(); Some((TargetByObj::from(s), pos.get_range_to(p))) },
         StructureObject::StructureSpawn(s)
             if s.store().get_free_capacity(Some(ResourceType::Energy)) >= 50  => { let p = s.pos(); Some((TargetByObj::from(s), pos.get_range_to(p))) },
         StructureObject::StructureController(s) => { let p = s.pos(); Some((TargetByObj::from(s), pos.get_range_to(p))) },
@@ -123,7 +123,7 @@ Returns the closest structure destination target in the room.
 fn try_dest_structure_by_range(room: &Room, pos: &Position) -> Option<TargetByObj> {room.find(find::MY_STRUCTURES, None)
     .into_iter().filter_map(|o| match o {
         StructureObject::StructureExtension(s)
-            if s.store().get_free_capacity(Some(ResourceType::Energy)) >= 50  => Some(TargetByObj::from(s)),
+            if s.store().get_free_capacity(Some(ResourceType::Energy)) >= 1  => Some(TargetByObj::from(s)),
         StructureObject::StructureSpawn(s)
             if s.store().get_free_capacity(Some(ResourceType::Energy)) >= 50  => Some(TargetByObj::from(s)),
         StructureObject::StructureController(s) => Some(TargetByObj::from(s)),
@@ -150,7 +150,7 @@ This is particularly useful on resets, so as to not pickup a task on the other e
 One consequence is that sometimes, a creep will empty only part of his inventory (eg in extension) and immediately go back fill it more as opposed to empty completely in several targe.
 This is hardly a fault on the target acquisition part though, more of a sign that maybe the targets are close and the creep has too many carry parts consiidering the short trips it has to make.
  */
-pub(crate) fn acquire_target(creep: &Creep, target_entry: hash_map::VacantEntry<'_, String, Target>) -> Option<()> {
+pub(crate) fn acquire_target(creep: &Creep, target_entry: hash_map::VacantEntry<'_, CreepName, TargetEnum>) -> Option<()> {
     let pos = creep.pos();
     let room = creep.room().ok_or(()).ok()?;
 
@@ -198,7 +198,7 @@ pub(crate) fn acquire_target(creep: &Creep, target_entry: hash_map::VacantEntry<
     }};
 
     //if neither full nor empty, make a decision based on range.
-    let target = Some(Target::from( match (destination, origin) {
+    let target = Some(TargetEnum::from( match (destination, origin) {
         (Some(d), Some(o)) =>
             if (used_capacity * (pos.get_range_to(o.pos()) - 1) as i32) <= free_capacity * (pos.get_range_to(d.pos()) - 1) as i32 {
                 o

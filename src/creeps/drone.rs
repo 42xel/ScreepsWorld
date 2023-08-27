@@ -1,31 +1,17 @@
 use std::{cell::RefCell, collections::{HashMap, hash_map}};
 
-use crate::{prelude::*, my_wasm::UnwrapJsExt};
+use crate::{prelude::*, my_wasm::UnwrapJsExt, jobs::{TargetEnum, Target}, creeps::CreepName};
 use screeps::{
     constants::{Part, ResourceType},
-    objects::Creep, HasPosition, SharedCreepProperties, ObjectId, StructureSpawn, StructureController, Source, ErrorCode, Ruin, StructureExtension, ConstructionSite, MoveToOptions
+    objects::Creep, HasPosition, SharedCreepProperties, StructureSpawn, StructureController, Source, ErrorCode, Ruin, StructureExtension, ConstructionSite, MoveToOptions
 };
 use wasm_bindgen::{throw_str};
 
 
 use super::{Progress};
 
-/// this enum will represent a drone's lock on a specific target object, storing a js reference
-/// to the object id so that we can grab a fresh reference to the object each successive tick,
-/// since screeps game objects become 'stale' and shouldn't be used beyond the tick they were fetched
-#[derive(Debug, PartialEq, PartialOrd)]
-pub(crate) enum Target {
-    Source(ObjectId<Source>),
-    Ruin(ObjectId<Ruin>),
-    Extension(ObjectId<StructureExtension>),
-    Spawn(ObjectId<StructureSpawn>),
-    _ConstructionSiteMax,
-    ConstructionSite(ObjectId<ConstructionSite>),
-    Controller(ObjectId<StructureController>),
-}
-
 thread_local! {
-    static TARGETS: RefCell<HashMap<String, Target>> = Default::default();
+    static TARGETS: RefCell<HashMap<CreepName, TargetEnum>> = Default::default();
 }
 
 fn error_no_body_part(creep: &Creep) -> Result<Progress, ErrorCode> {
@@ -34,7 +20,7 @@ fn error_no_body_part(creep: &Creep) -> Result<Progress, ErrorCode> {
     Err(ErrorCode::NoBodypart)
 }
 
-fn move_drone_to<T: HasPosition>(creep: &Creep, target: T) -> Result<Progress, ErrorCode> {
+fn move_creep_to<T: HasPosition>(creep: &Creep, target: T) -> Result<Progress, ErrorCode> {
     if let Err(err_m) = creep.move_to_with_options(target, Some(MoveToOptions::new().ignore_creeps(true)))
     { match err_m {
         ErrorCode::NoPath | ErrorCode::NotFound /*The creep has no memorized path to reuse. */ => {
@@ -53,7 +39,7 @@ fn move_drone_to<T: HasPosition>(creep: &Creep, target: T) -> Result<Progress, E
 
 fn harvest_source(creep: &Creep, source: Source) -> Result<Progress, ErrorCode> {
     if let Err(e) = creep.harvest(&source) { match e {
-        ErrorCode::NotInRange => match move_drone_to(creep, source) {
+        ErrorCode::NotInRange => match move_creep_to(creep, source) {
             Err(ErrorCode::NotFound) => Ok(Progress::Todo),
             Err(ErrorCode::NoPath) => { Err(ErrorCode::NoPath)},
             r => r
@@ -72,7 +58,7 @@ fn harvest_source(creep: &Creep, source: Source) -> Result<Progress, ErrorCode> 
 
 fn withdraw_from_ruin(creep: &Creep, ruin: Ruin) -> Result<Progress, ErrorCode> {
     if let Err(e) = creep.withdraw(&ruin, ResourceType::Energy, None) { match e {
-        ErrorCode::NotInRange => match move_drone_to(creep, ruin) {
+        ErrorCode::NotInRange => match move_creep_to(creep, ruin) {
             Err(ErrorCode::NotFound) => Ok(Progress::Todo),
             Err(ErrorCode::NoPath) => { Err(ErrorCode::NoPath)},
             r => r
@@ -91,7 +77,7 @@ fn withdraw_from_ruin(creep: &Creep, ruin: Ruin) -> Result<Progress, ErrorCode> 
 
 fn transfer_spawn(creep: &Creep, spawn: StructureSpawn) -> Result<Progress, ErrorCode> {
     if let Err(e) = creep.transfer(&spawn, ResourceType::Energy, None) { match e {
-        ErrorCode::NotInRange => match move_drone_to(creep, spawn) {
+        ErrorCode::NotInRange => match move_creep_to(creep, spawn) {
             Err(ErrorCode::NotFound) => Ok(Progress::Todo),
             Err(ErrorCode::NoPath) => { Err(ErrorCode::NoPath)},
             r => r
@@ -109,7 +95,7 @@ fn transfer_spawn(creep: &Creep, spawn: StructureSpawn) -> Result<Progress, Erro
 
 fn transfer_extension(creep: &Creep, extension: StructureExtension) -> Result<Progress, ErrorCode> {
     if let Err(e) = creep.transfer(&extension, ResourceType::Energy, None) { match e {
-        ErrorCode::NotInRange => match move_drone_to(creep, extension) {
+        ErrorCode::NotInRange => match move_creep_to(creep, extension) {
             Err(ErrorCode::NotFound) => Ok(Progress::Todo),
             Err(ErrorCode::NoPath) => { Err(ErrorCode::NoPath)},
             r => r
@@ -127,7 +113,7 @@ fn transfer_extension(creep: &Creep, extension: StructureExtension) -> Result<Pr
 
 fn upgrade_controller_controller(creep: &Creep, controller: StructureController) -> Result<Progress, ErrorCode> {
     if let Err(e) = creep.upgrade_controller(&controller) { match e {
-        ErrorCode::NotInRange => match move_drone_to(creep, controller) {
+        ErrorCode::NotInRange => match move_creep_to(creep, controller) {
             Err(ErrorCode::NotFound) => Ok(Progress::Todo),
             Err(ErrorCode::NoPath) => { Err(ErrorCode::NoPath)},
             r => r
@@ -141,12 +127,12 @@ fn upgrade_controller_controller(creep: &Creep, controller: StructureController)
     }}
     else if creep.get_active_bodyparts(Part::Work) as u32 > creep.store().get_used_capacity(Some(ResourceType::Energy)) {
         Ok(Progress::Done)
-    } else { let _ = move_drone_to(creep, controller); Ok(Progress::Doing) }
+    } else { let _ = move_creep_to(creep, controller); Ok(Progress::Doing) }
 }
 
 fn build(creep: &Creep, construction_site: ConstructionSite) -> Result<Progress, ErrorCode> {
     if let Err(e) = creep.build(&construction_site) { match e {
-        ErrorCode::NotInRange => match move_drone_to(creep, construction_site) {
+        ErrorCode::NotInRange => match move_creep_to(creep, construction_site) {
             Err(ErrorCode::NotFound) => Ok(Progress::Todo),
             Err(ErrorCode::NoPath) => { Err(ErrorCode::NoPath)},
             r => r
@@ -167,8 +153,7 @@ fn build(creep: &Creep, construction_site: ConstructionSite) -> Result<Progress,
     } else { Ok(Progress::Doing) }
 }
 
-pub mod acquire_target;
-
+pub mod acquire_job;
 
 pub(super) fn run_drone(creep: &Creep) {
     let name = creep.name();
@@ -176,13 +161,15 @@ pub(super) fn run_drone(creep: &Creep) {
     {
         let r = if let Some(target) = targets.get(&name) {
             match target {
-                Target::Source(source) => harvest_source(creep, source.resolve().unwrap_js()),
-                Target::Spawn(spawn) => transfer_spawn(creep, spawn.resolve().unwrap_js()),
-                Target::Controller(controller) => upgrade_controller_controller(creep, controller.resolve().unwrap_js()),
-                Target::Ruin(ruin) => withdraw_from_ruin(creep, ruin.resolve().unwrap_js()),
-                Target::Extension(extension) => transfer_extension(creep, extension.resolve().unwrap_js()),
-                Target::ConstructionSite(construction_site) => build(creep, construction_site.resolve().unwrap_js()),
-                Target::_ConstructionSiteMax => unreachable!(),
+                TargetEnum::Source(source) => harvest_source(creep, source.resolve().unwrap_js()),
+                TargetEnum::Spawn(spawn) => transfer_spawn(creep, spawn.resolve().unwrap_js()),
+                TargetEnum::Controller(controller) => upgrade_controller_controller(creep, controller.resolve().unwrap_js()),
+                TargetEnum::Ruin(ruin) => withdraw_from_ruin(creep, ruin.resolve().unwrap_js()),
+                TargetEnum::Extension(extension) => transfer_extension(creep, extension.resolve().unwrap_js()),
+                TargetEnum::ConstructionSite(construction_site) => build(creep, construction_site.resolve().unwrap_js()),
+                TargetEnum::SupplySpawn(t) => t.execute(creep),
+                TargetEnum::_ConstructionSiteMax => unreachable!(),
+                TargetEnum::_None => unreachable!(),
             }
         } else { Ok(Progress::Frozen)}; // no need to clear
         match r {
@@ -202,7 +189,7 @@ pub(super) fn run_drone(creep: &Creep) {
             },
         }
         if let hash_map::Entry::Vacant(target) = targets.entry(name) {
-            acquire_target::acquire_target(creep, target);
+            acquire_job::acquire_target(creep, target);
         };
 //        if r != Ok(Progress::Done) {break;};  //Too unstable for now, must ensure the same task is not attempted inefinitely the same tick
     });
